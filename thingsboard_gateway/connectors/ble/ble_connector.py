@@ -250,9 +250,11 @@ class BLEConnector(Connector, Thread):
                             data = self.__service_processing(device, section['section_config'])
                             converter = section['converter']
                             converted_data = converter.convert(section, data)
+                            self.statistics['MessagesReceived'] = self.statistics['MessagesReceived'] + 1
                             log.debug(data)
                             log.debug(converted_data)
                             self.__gateway.send_to_storage(self.get_name(), converted_data)
+                            self.statistics['MessagesSent'] = self.statistics['MessagesSent'] + 1
             except BTLEDisconnectError:
                 log.debug('Cannot connect to device %s', device)
                 continue
@@ -283,6 +285,7 @@ class BLEConnector(Connector, Thread):
                     for interest_information in converter_config:
                         try:
                             converted_data = converter.convert(interest_information, data)
+                            self.statistics['MessagesReceived'] = self.statistics['MessagesReceived'] + 1
                             log.debug(converted_data)
                         except Exception as e:
                             log.debug(e)
@@ -292,6 +295,7 @@ class BLEConnector(Connector, Thread):
         if converted_data is not None:
             # self.__gateway.add_device(converted_data["deviceName"], {"connector": self})
             self.__gateway.send_to_storage(self.get_name(), converted_data)
+            self.statistics['MessagesSent'] = self.statistics['MessagesSent'] + 1
 
     def __check_and_reconnect(self, device):
         while self.__devices_around[device]['peripheral']._helper is None:

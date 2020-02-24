@@ -36,7 +36,9 @@ setup(
         'pytz',
         'PyYAML',
         'simplejson',
-        'pyrsistent'
+        'pyrsistent',
+        'twisted',
+        'APScheduler'
     ],
     download_url='https://github.com/thingsboard/thingsboard-gateway/archive/2.1.0.7.tar.gz',
     entry_points={

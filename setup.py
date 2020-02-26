@@ -41,7 +41,7 @@ setup(
         'twisted',
         'APScheduler'
     ],
-    download_url='https://github.com/thingsboard/thingsboard-gateway/archive/2.1.0.8.tar.gz',
+    download_url='https://github.com/thingsboard/thingsboard-gateway/archive/2.2.tar.gz',
     entry_points={
         'console_scripts': [
             'thingsboard-gateway = thingsboard_gateway.tb_gateway:daemon'

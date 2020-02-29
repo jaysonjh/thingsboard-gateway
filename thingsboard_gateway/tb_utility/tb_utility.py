@@ -11,7 +11,7 @@
 #     WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #     See the License for the specific language governing permissions and
 #     limitations under the License.
-
+import threading
 from os import path, listdir
 from inspect import getmembers, isclass
 from importlib import util
@@ -19,7 +19,6 @@ from logging import getLogger
 from simplejson import dumps, loads
 from re import search, match, compile
 from jsonpath_rw import jsonpath, parse
-
 
 log = getLogger("service")
 
@@ -40,7 +39,8 @@ class TBUtility:
         if not data.get("deviceType") or data.get("deviceType") is None:
             log.error('deviceType is empty in data: %s', json_data)
             return False
-        if (data.get("attributes") is None and data.get("telemetry") is None) or (not data.get("attributes") and not data.get("telemetry")):
+        if (data.get("attributes") is None and data.get("telemetry") is None) or (
+                not data.get("attributes") and not data.get("telemetry")):
             log.error('No telemetry and attributes in data: %s', json_data)
             return False
         return True
@@ -55,16 +55,19 @@ class TBUtility:
 
     @staticmethod
     def check_and_import(extension_type, module_name):
-        extensions_paths = (path.abspath(path.dirname(path.dirname(__file__)) + '/connectors/'.replace('/', path.sep) + extension_type.lower()),
+        extensions_paths = (path.abspath(
+            path.dirname(path.dirname(__file__)) + '/connectors/'.replace('/', path.sep) + extension_type.lower()),
                             '/var/lib/thingsboard_gateway/'.replace('/', path.sep) + extension_type.lower(),
-                            path.abspath(path.dirname(path.dirname(__file__)) + '/extensions/'.replace('/', path.sep) + extension_type.lower()))
+                            path.abspath(path.dirname(path.dirname(__file__)) + '/extensions/'.replace('/',
+                                                                                                       path.sep) + extension_type.lower()))
         try:
             for extension_path in extensions_paths:
                 if path.exists(extension_path):
                     for file in listdir(extension_path):
                         if not file.startswith('__') and file.endswith('.py'):
                             try:
-                                module_spec = util.spec_from_file_location(module_name, extension_path + path.sep + file)
+                                module_spec = util.spec_from_file_location(module_name,
+                                                                           extension_path + path.sep + file)
                                 log.debug(module_spec)
                                 if module_spec is None:
                                     log.error('Module: {} not found'.format(module_name))
@@ -109,7 +112,9 @@ class TBUtility:
         try:
             if value_type == "string":
                 try:
-                    full_value = expression[0: min(abs(p1 - 2), 0)] + body[target_str.split()[0]] + expression[p2 + 1:len(expression)]
+                    full_value = expression[0: min(abs(p1 - 2), 0)] + body[target_str.split()[0]] + expression[
+                                                                                                    p2 + 1:len(
+                                                                                                        expression)]
                 except KeyError:
                     pass
                 if full_value is None:
@@ -134,9 +139,33 @@ class TBUtility:
                     log.exception(e)
         except TypeError:
             if full_value is None:
-                log.error('Value is None - Cannot find the pattern: %s in %s. Expression will be interpreted as value.', target_str, dumps(body))
+                log.error('Value is None - Cannot find the pattern: %s in %s. Expression will be interpreted as value.',
+                          target_str, dumps(body))
                 full_value = expression
         except Exception as e:
             log.exception(e)
             return None
         return full_value
+
+
+def threadsafe_function(fcn):
+    """decorator making sure that the decorated function is thread safe"""
+    lock = threading.RLock()
+
+    def new(*args, **kwargs):
+        """Lock and call the decorated function
+           Unless kwargs['threadsafe'] == False
+        """
+        threadsafe = kwargs.pop('threadsafe', True)
+        if threadsafe:
+            lock.acquire()
+        try:
+            ret = fcn(*args, **kwargs)
+        except Exception as excpt:
+            raise excpt
+        finally:
+            if threadsafe:
+                lock.release()
+        return ret
+
+    return new

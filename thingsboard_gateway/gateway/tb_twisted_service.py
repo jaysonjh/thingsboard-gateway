@@ -36,7 +36,7 @@ class TBTwistedService(object):
     def __init__(self):
         pass
 
-    def addListen(self, gateway, config, connector):
+    def add_listen(self, gateway, config, connector):
 
         protocol = config['protocol']
         factory = None
@@ -44,11 +44,14 @@ class TBTwistedService(object):
         description = 'tcp:%d' % port
 
         # 先获取是否有listen
-        listen, factory, number = self.__ports[description]
+        client = self.__ports[description]
+        listen = client['listen']
         if listen is not None:
+            factory = client['factory']
+            number = client['number']
             number += 1
             factory.updateDevices(config.get('devices'))
-            self.__ports[description] = (listen, factory, number)
+            self.__ports[description] = {'listen': listen, 'factory': factory, 'number': number}
             log.debug("%s connector is start listened %s", (config['name'], description))
             log.debug("%d connector is listened %s" % (number, description))
             return
@@ -62,43 +65,60 @@ class TBTwistedService(object):
         if factory is None:
             raise Exception("Can't add listen, protocol %s is not support", protocol)
 
-        def _addListen(des, fact):
+        def _add_listen(des, fact):
             log.debug("%s connector is start listened %s", (config['name'], description))
             endpoint = endpoints.serverFromString(reactor, des)
             new_listen = endpoint.listen(fact)
-            self.__ports[description] = (new_listen, fact, 1)
+            self.__ports[description] = {'listen': new_listen, 'factory': fact, 'number': 1}
 
         # 不同线程需要使用此twisted的API来操作reactor
-        reactor.callFromThread(_addListen, description, factory)
+        reactor.callFromThread(_add_listen, description, factory)
 
-    def remListen(self, config):
+    def rem_listen(self, config):
         port = config['port']
         description = 'tcp:%d' % port
 
-        def _remListen(des):
-            listen, f, number = self.__ports[des]
-            number -= 1
-            f.removeDevices(config)
-            if number <= 0:
-                log.debug("Stop listen %s" % description)
-                del self.__ports[description]
-                if listen is not None:
-                    listen.result.stopListening()
-            else:
-                log.debug("%s connector is stop listened %s", (config['name'], description))
-                log.debug("Still %d connector is listened %s" % (number, description))
+        def _rem_listen(des):
+            client = self.__ports[des]
+            listen = client['listen']
+            if listen is not None:
+                f = client['factory']
+                number = client['number']
+                number -= 1
+                f.removeDevices(config)
+                if number <= 0:
+                    log.debug("Stop listen %s" % description)
+                    del self.__ports[description]
+                    if listen is not None:
+                        listen.result.stopListening()
+                else:
+                    log.debug("%s connector is stop listened %s", (config['name'], description))
+                    log.debug("Still %d connector is listened %s" % (number, description))
 
         # 不同线程需要使用此twisted的API来操作reactor
-        reactor.callFromThread(_remListen, description)
+        reactor.callFromThread(_rem_listen, description)
 
-    def clearListen(self):
+    def clear_listen(self):
         log.debug("Clear listen")
         for _, v in self.__ports.items():
-            def _clearListen(listen):
+            def _clear_listen(listen):
                 # stop listen
                 if listen is not None:
                     listen.result.stopListening()
 
             # 不同线程需要使用此twisted的API来操作reactor
-            reactor.callFromThread(_clearListen, v)
+            reactor.callFromThread(_clear_listen, v)
         self.__ports.clear()
+
+    def rpc_handler(self, config, content):
+        port = config['port']
+        description = 'tcp:%d' % port
+        _, factory, _ = self.__ports[description]
+        if factory is not None:
+            # Usr 协议
+            if isinstance(factory, UsrProtocolFactory):
+                factory.server_side_rpc_handler(config, content)
+        else:
+            log.error("Received rpc request, but factory not found in config for %s.",
+                      description,
+                      config["name"])

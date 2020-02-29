@@ -24,7 +24,7 @@ class TcpConnector(Connector):
     def open(self):
         self.__stopped = False
         log.info("Starting Tcp connector[%s]", self.__name)
-        TBTwistedService().addListen(self.__gateway, self.__config, self)
+        TBTwistedService().add_listen(self.__gateway, self.__config, self)
 
     def is_connected(self):
         return self.__connected
@@ -35,11 +35,13 @@ class TcpConnector(Connector):
     def close(self):
         self.__stopped = True
         log.info('Tcp connector[%s] has been stopped.', self.get_name())
-        TBTwistedService().remListen(self.__config)
+        TBTwistedService().rem_listen(self.__config)
 
     def on_attributes_update(self, content):
         pass
 
     def server_side_rpc_handler(self, content):
-        pass
+        log.debug("Tcp connector received rpc request for %s with content: %s", self.get_name(), content)
+        TBTwistedService().rpc_handler(self.__config, content)
+
 

@@ -23,18 +23,21 @@ class TcpConnector(Connector):
 
     def open(self):
         self.__stopped = False
-        log.info("Starting Tcp connector[%s]", self.__name)
+        log.info("Starting connector[%s]", self.__name)
         TBTwistedService().add_listen(self.__gateway, self.__config, self)
 
     def is_connected(self):
         return self.__connected
+
+    def setName(self, name):
+        self.__name = name
 
     def get_name(self):
         return self.__name
 
     def close(self):
         self.__stopped = True
-        log.info('Tcp connector[%s] has been stopped.', self.get_name())
+        log.info('Connector[%s] has been stopped.', self.get_name())
         TBTwistedService().rem_listen(self.__config)
 
     def on_attributes_update(self, content):

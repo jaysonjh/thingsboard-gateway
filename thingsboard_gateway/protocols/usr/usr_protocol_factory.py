@@ -8,7 +8,6 @@ from pymodbus.framer.socket_framer import ModbusSocketFramer
 from pymodbus.bit_write_message import WriteMultipleCoilsResponse, WriteSingleCoilResponse
 from pymodbus.register_read_message import ReadRegistersResponseBase
 from pymodbus.register_write_message import WriteMultipleRegistersResponse, WriteSingleRegisterResponse
-
 from twisted.internet.protocol import ServerFactory
 
 from thingsboard_gateway.connectors.modbus.bytes_modbus_downlink_converter import BytesModbusDownlinkConverter
@@ -30,16 +29,15 @@ class UsrProtocolFactory(ServerFactory):
         self._clients = dict()
         self._gateway = gateway
         self._devices = {}
-        self._connector = connector
+        # self._connector = connector
         self._tokens = set()
         self._usrConfig = None
-        self._addAllDevices()
         # 定时任务
         self._jobs = {}
         self._schedulerService = TBScheduleService(BackgroundScheduler())
 
         # Modbus
-        self.decoder = ClientDecoder()
+        self.decoder = ServerDecoder()
         self.framer = framer(self.decoder) or ModbusSocketFramer(self.decoder)
         self.store = store or ModbusServerContext()
         self.control = ModbusControlBlock()
@@ -59,15 +57,31 @@ class UsrProtocolFactory(ServerFactory):
 
     def addClient(self, addr, protocol, token):
         self._clients[addr] = {'protocol': protocol, 'token': token}
+        if token is not None:
+            devices = self.getDevices(token)
+            for device in devices:
+                for attr in device['devices']:
+                    self._addPollPeriodJob(attr)
 
-    def delClient(self, addr):
+    def delClient(self, addr, token):
+        if token is None:
+            raise Exception('Token must be not None')
         del self._clients[addr]
+        devices = self.getDevices(token)
+        for device in devices:
+            for attr in device['devices']:
+                self._removePollPeriodJob(attr)
+                self._addPollPeriodJob(attr)
 
     def updateClient(self, addr, protocol, token):
         if token is None:
             raise Exception('Token must be not None')
         self._clients[addr] = {'protocol': protocol, 'token': token}
-        self._tokens.add(token)
+        devices = self.getDevices(token)
+        for device in devices:
+            for attr in device['devices']:
+                self._removePollPeriodJob(attr)
+                self._addPollPeriodJob(attr)
 
     def clear(self):
         self._clients = dict()
@@ -77,41 +91,60 @@ class UsrProtocolFactory(ServerFactory):
         return token in self._tokens
 
     def hasDeviceOnline(self, name):
-        device = self._devices[name]
+        device = self._devices.get(name, None)
         if device is not None:
             return self.hasToken(device['token'])
         else:
             return False
 
     def getDevice(self, name, addr=None, unit_id=None):
+        """
+        按名字或者地址+ID查询单个设备
+        :param name: 设备名称
+        :param addr: 地址
+        :param unit_id: id
+        :return: 设备信息
+        """
         # 优先使用Name查询
         if name is not None:
-            return self._devices[name]
+            return self._devices.get(name, None)
         clients = self._clients
         token = clients[addr]['token']
-        devices = list(filter(lambda x: devices[x]['token'] == token and devices[x]['config'].get('unitId') == unit_id,
-                              clients))
+        devices = list(
+            filter(lambda x: self._devices[x]['token'] == token and self._devices[x]['config'].get('unitId') == unit_id,
+                   self._devices))
         if devices is not None and len(devices) > 0:
             return devices[0]
         else:
             return None
 
-    def addDevices(self, config):
+    def getDevices(self, token):
+        """
+        根据token获取设备列表
+        :param token: token
+        :return: 设备配置信息
+        """
+        devices = list(
+            filter(lambda x: self._devices[x]['token'] == token,
+                   self._devices))
+        return devices
+
+    def addDevices(self, config, connector):
         token = config['accessToken']
         self._tokens.add(token)
         if token is not None:
             for device in config['devices']:
                 if config.get("converter") is not None:
-                    converter = TBUtility.check_and_import(self._connector_type, self._config["converter"])(device)
+                    converter = TBUtility.check_and_import('tcp', self._config["converter"])(device)
                 else:
                     converter = BytesModbusUplinkConverter(device)
                 if config.get("downlink_converter") is not None:
-                    downlink_converter = TBUtility.check_and_import(self._connector_type,
+                    downlink_converter = TBUtility.check_and_import('tcp',
                                                                     self._config["downlink_converter"])(device)
                 else:
                     downlink_converter = BytesModbusDownlinkConverter(device)
                 if device.get('deviceName') not in self._gateway.get_devices():
-                    self._gateway.add_device(device.get('deviceName'), {"connector": self._connector},
+                    self._gateway.add_device(device.get('deviceName'), {"connector": connector},
                                              device_type=device.get("deviceType"))
                     self._devices[device["deviceName"]] = {"config": device,
                                                            "token": token,
@@ -124,41 +157,38 @@ class UsrProtocolFactory(ServerFactory):
                                                            "last_telemetry": {},
                                                            "last_attributes": {}
                                                            }
-                    # 新增定时任务
-                    self._addPollPeriodJob(device)
+
                 break
 
-    def updateDevices(self, config):
+    def updateDevices(self, config, connector):
         token = config['accessToken']
         self._tokens.add(token)
         if token is not None:
             # 1. 先删除之前添加的设备，避免存在脏设备。
             pre_gateway_devices = filter(
-                lambda x: self._gateway[x]["connector"].get_name() == self._connector.get_name(),
+                lambda x: self._gateway[x]["connector"].get_name() == connector.get_name(),
                 self._gateway.get_devices())
             if pre_gateway_devices is not None:
                 for pre_device in pre_gateway_devices:
                     self._gateway.del_device(pre_device.get('deviceName'))
 
-            devices = filter(lambda x: self._devices[x]['token'] == token, self._devices)
-            for device in devices:
-                del self._devices[device.get('deviceName')]
-                # 删除定时任务
-                self._removePollPeriodJob(device)
+            devices = {k: v for k, v in self._devices.items() if v['token'] == token}
+            for device in list(devices.keys()):
+                del self._devices[device]
+
             # 2. 新增设备，重置所有的信息
             for device in config['devices']:
                 if config.get("converter") is not None:
-                    converter = TBUtility.check_and_import(self._connector_type, self._config["converter"])(device)
+                    converter = TBUtility.check_and_import('tcp', self._config["converter"])(device)
                 else:
                     converter = BytesModbusUplinkConverter(device)
                 if config.get("downlink_converter") is not None:
-                    downlink_converter = TBUtility.check_and_import(self._connector_type,
-                                                                    self._config["downlink_converter"])(device)
+                    downlink_converter = TBUtility.check_and_import('tcp', self._config["downlink_converter"])(device)
                 else:
                     downlink_converter = BytesModbusDownlinkConverter(device)
 
                 if device.get('deviceName') not in self._gateway.get_devices():
-                    self._gateway.add_device(device.get('deviceName'), {"connector": self._connector},
+                    self._gateway.add_device(device.get('deviceName'), {"connector": connector},
                                              device_type=device.get("deviceType"))
                 if device.get('deviceName') not in self._devices:
                     self._devices[device["deviceName"]] = {"config": device,
@@ -172,20 +202,17 @@ class UsrProtocolFactory(ServerFactory):
                                                            "last_telemetry": {},
                                                            "last_attributes": {}
                                                            }
-                # 重置定时任务
-                self._addPollPeriodJob(device)
+
                 break
 
     def removeDevices(self, config):
         token = config['accessToken']
         self._tokens.remove(token)
         if token is not None:
-            devices = filter(lambda x: self._devices[x]['token'] == token, self._devices)
-            for device in devices:
-                # 删除定时任务
-                self._removePollPeriodJob(device)
-                self._gateway.del_device(device.get('deviceName'))
-                del self._devices[device.get('deviceName')]
+            devices = {k: v for k, v in self._devices.items() if v['token'] == token}
+            for device in list(devices.keys()):
+                self._gateway.del_device(device)
+                del self._devices[device]
 
     def _getProtocol(self, token):
         client = list(filter(lambda x: self._clients[x]['token'] == token, self._clients))
@@ -196,7 +223,7 @@ class UsrProtocolFactory(ServerFactory):
     def _poll_period_handler(self, name, poll_type):
         device = self.getDevice(name)
         if device is not None:
-            unit_id = device['unitId']
+            unit_id = device['config']['unitId']
 
             # 上传数据
             def __pollPeriodCallback(response):
@@ -204,7 +231,7 @@ class UsrProtocolFactory(ServerFactory):
                     current_time = time.time()
                     log.debug("Checking %s for device %s", poll_type, device)
                     device["next_" + poll_type + "_check"] = current_time + device["config"][
-                                                                 poll_type + "PollPeriod"] / 1000
+                        poll_type + "PollPeriod"] / 1000
                     log.debug(response)
                     converted_data = device["converter"].convert(config=None, data=response)
                     to_send = {"deviceName": converted_data["deviceName"],
@@ -223,7 +250,8 @@ class UsrProtocolFactory(ServerFactory):
 
                         for attribute_dict in converted_data["attributes"]:
                             for key, value in attribute_dict.items():
-                                if device["last_attributes"].get(key) is None or device["last_attributes"][key] != value:
+                                if device["last_attributes"].get(key) is None or device["last_attributes"][
+                                    key] != value:
                                     device["last_attributes"][key] = value
                                     to_send["attributes"].append({key: value})
 
@@ -232,7 +260,8 @@ class UsrProtocolFactory(ServerFactory):
                         else:
                             log.debug("Data has not been changed.")
 
-                    elif device["config"].get("sendDataOnlyOnChange") is None or not device["config"].get("sendDataOnlyOnChange"):
+                    elif device["config"].get("sendDataOnlyOnChange") is None or not device["config"].get(
+                            "sendDataOnlyOnChange"):
                         # if converted_data["telemetry"] != self.__devices[device]["telemetry"]:
                         device["last_telemetry"] = converted_data["telemetry"]
                         to_send["telemetry"] = converted_data["telemetry"]
@@ -324,14 +353,13 @@ class UsrProtocolFactory(ServerFactory):
 
     def _removePollPeriodJob(self, device):
         deviceName = device.get('deviceName')
+
         # 处理attributes Job
-        jobs = list(filter(lambda x: (self._jobs[x]['name'] == deviceName and self._jobs[x]['type'] == 'attributes'),
-                           self._jobs))
-        if jobs is not None:
+        jobs = {k: v for k, v in self._jobs.items() if v['name'] == deviceName and v['type'] == 'attributes'}
+        if jobs is not None and len(list(jobs)) > 0:
             self._schedulerService.remove_job('%s:%s' % (deviceName, 'attributes'))
 
         # 处理timeseries Job
-        jobs = list(filter(lambda x: (self._jobs[x]['name'] == deviceName and self._jobs[x]['type'] == 'timeseries'),
-                           self._jobs))
-        if jobs is not None:
+        jobs = {k: v for k, v in self._jobs.items() if v['name'] == deviceName and v['type'] == 'timeseries'}
+        if jobs is not None and len(list(jobs)) > 0:
             self._schedulerService.remove_job('%s:%s' % (deviceName, 'timeseries'))

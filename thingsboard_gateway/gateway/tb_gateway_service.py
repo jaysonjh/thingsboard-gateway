@@ -25,6 +25,7 @@ from string import ascii_lowercase
 from queue import Queue
 from thingsboard_gateway.gateway.tb_client import TBClient
 from thingsboard_gateway.gateway.tb_logger import TBLoggerHandler
+from thingsboard_gateway.gateway.tb_twisted_service import TBTwistedService
 from thingsboard_gateway.tb_utility.tb_utility import TBUtility
 from thingsboard_gateway.storage.memory_event_storage import MemoryEventStorage
 from thingsboard_gateway.storage.file_event_storage import FileEventStorage
@@ -151,6 +152,7 @@ class TBGatewayService:
             self.__close_connectors()
             log.info("The gateway has been stopped.")
             self.tb_client.stop()
+            TBTwistedService().clear_listen()
         except Exception as e:
             log.exception(e)
             self.__close_connectors()

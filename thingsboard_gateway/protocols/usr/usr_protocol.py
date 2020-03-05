@@ -26,9 +26,10 @@ class UsrProtocol(Protocol):
     有人云协议
     """
 
-    def __init__(self, **kwargs):
+    def __init__(self):
         self._is_valid = False
         self._addr = None
+        self._token = None
         self._connected = False
         self._timeout = 10
         self._functions = {
@@ -43,14 +44,11 @@ class UsrProtocol(Protocol):
         }
         self._timeoutDeffer = defer.Deferred()
         self._requests = []
-        self.framer = self.factory.framer(decoder=self.factory.decoder,
-                                          client=None)
-        if isinstance(self.framer, ModbusSocketFramer):
-            self.transaction = DictTransactionManager(self, **kwargs)
-        else:
-            self.transaction = FifoTransactionManager(self, **kwargs)
+        self.framer = None
+        self.transaction = None
 
     def dataReceived(self, data):
+        log.debug("Received data: " + " ".join([hex(byte2int(x)) for x in data]))
         self._timeoutDeffer.callback('dataReceived')
         if self._is_valid:
             # 验证成功
@@ -59,11 +57,19 @@ class UsrProtocol(Protocol):
                                               unit=unit)
         else:
             # 首次获取数据，验证注册码
-            data_str = str(data, encoding='utf-8')
+            data_str = str(data, encoding='ascii')
             if data_str is not None and len(data_str) > 0:
                 self._handlerToken(data_str)
 
     def connectionMade(self):
+        # 初始化Framer
+        self.framer = self.factory.framer
+        # 初始化TransactionT
+        if isinstance(self.framer, ModbusSocketFramer):
+            self.transaction = DictTransactionManager(self)
+        else:
+            self.transaction = FifoTransactionManager(self)
+
         self._addr = '%s:%d' % (self.transport.getPeer().host, self.transport.getPeer().port)
         self.factory.addClient(self._addr, self, None)
         log.debug("Client Connected [%s]" % self._addr)
@@ -71,11 +77,12 @@ class UsrProtocol(Protocol):
 
     def connectionLost(self, reason=connectionDone):
         log.debug("Client Disconnected: %s" % reason)
-        self.factory.delClient(self._addr)
+        self.factory.delClient(self._addr, self._token)
 
     def _handlerToken(self, data):
         if self.factory.hasToken(data):
             self._is_valid = True
+            self._token = data
             self.factory.updateClient(self._addr, self, data)
         else:
             log.error("This connections token[%s] is not valid." % data)

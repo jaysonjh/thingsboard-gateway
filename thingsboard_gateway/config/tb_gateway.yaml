@@ -1,5 +1,5 @@
 thingsboard:
-  host: dev.zhiye.com
+  host: dev.zhiyesoft.com
   port: 41883
   remoteConfiguration: true
   security:

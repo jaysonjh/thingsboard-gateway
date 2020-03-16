@@ -14,6 +14,7 @@
 
 from pymodbus.constants import Endian
 from pymodbus.payload import BinaryPayloadDecoder
+from pymodbus.exceptions import ModbusIOException
 
 from thingsboard_gateway.connectors.modbus.modbus_converter import ModbusConverter, log
 
@@ -24,8 +25,8 @@ class BytesModbusUplinkConverter(ModbusConverter):
             "timeseries": "telemetry",
             "attributes": "attributes"
         }
-        self.__result = {"deviceName": config.get("deviceName", "ModbusDevice %s" % (config["unitId"])),
-                         "deviceType": config.get("deviceType", "ModbusDevice")}
+        self.__result = {"deviceName": config.get("deviceName", "ModbusDevice %s" % (str(config["unitId"]))),
+                         "deviceType": config.get("deviceType", "default")}
 
     def convert(self, config, data):
         self.__result["telemetry"] = []
@@ -47,24 +48,26 @@ class BytesModbusUplinkConverter(ModbusConverter):
                         decoded_data = result[0]
                 elif configuration["functionCode"] in [3, 4]:
                     decoder = None
-                    registers = response.registers
-                    log.debug("Tag: %s Config: %s registers: %s", tag, str(configuration), str(registers))
-                    try:
-                        decoder = BinaryPayloadDecoder.fromRegisters(registers, byteorder=endian_order)
-                    except TypeError:
-                        # pylint: disable=E1123
-                        decoder = BinaryPayloadDecoder.fromRegisters(registers, endian=endian_order)
-                    assert decoder is not None
-                    decoded_data = self.__decode_from_registers(decoder, configuration)
-                if decoded_data is not None:
-                    log.debug("datatype: %s \t key: %s \t value: %s", self.__datatypes[config_data], tag, str(decoded_data))
-                    self.__result[self.__datatypes[config_data]].append({tag: decoded_data})
-                else:
-                    log.debug("Cannot decode data from: %s with config: %s for tag: %s", response, str(configuration), tag)
+                    if not isinstance(response, ModbusIOException):
+                        registers = response.registers
+                        log.debug("Tag: %s Config: %s registers: %s", tag, str(configuration), str(registers))
+                        try:
+                            decoder = BinaryPayloadDecoder.fromRegisters(registers, byteorder=endian_order)
+                        except TypeError:
+                            # pylint: disable=E1123
+                            decoder = BinaryPayloadDecoder.fromRegisters(registers, endian=endian_order)
+                        assert decoder is not None
+                        decoded_data = self.__decode_from_registers(decoder, configuration)
+                    else:
+                        log.exception(response)
+                        decoded_data = None
+                log.debug("datatype: %s \t key: %s \t value: %s", self.__datatypes[config_data], tag, str(decoded_data))
+                self.__result[self.__datatypes[config_data]].append({tag: decoded_data})
         log.debug(self.__result)
         return self.__result
 
-    def __decode_from_registers(self, decoder, configuration):
+    @staticmethod
+    def __decode_from_registers(decoder, configuration):
         type_ = configuration["type"]
         registers_count = configuration.get("registerCount", 1)
         lower_type = type_.lower()
@@ -77,11 +80,12 @@ class BytesModbusUplinkConverter(ModbusConverter):
             '8uint': decoder.decode_8bit_uint,
             '16int': decoder.decode_16bit_int,
             '16uint': decoder.decode_16bit_uint,
+            '16float': decoder.decode_16bit_float,
             '32int': decoder.decode_32bit_int,
             '32uint': decoder.decode_32bit_uint,
+            '32float': decoder.decode_32bit_float,
             '64int': decoder.decode_64bit_int,
             '64uint': decoder.decode_64bit_uint,
-            '32float': decoder.decode_32bit_float,
             '64float': decoder.decode_64bit_float,
         }
 
@@ -111,13 +115,23 @@ class BytesModbusUplinkConverter(ModbusConverter):
         elif lower_type == 'bits':
             decoded = decoder_functions[type_]()
 
-        result_data = None
-        assert decoded is not None
+        elif decoder_functions.get(lower_type) is not None:
+            decoded = decoder_functions[lower_type]()
+
+        else:
+            log.error("Unknown type: %s", type_)
+
         if isinstance(decoded, int):
             result_data = decoded
         elif isinstance(decoded, bytes):
             result_data = decoded.decode('UTF-8')
+        elif isinstance(decoded, list):
+            result_data = str(decoded)
+        elif isinstance(decoded, float):
+            result_data = decoded
         elif decoded is not None:
             result_data = int(decoded, 16)
+        else:
+            result_data = decoded
 
         return result_data

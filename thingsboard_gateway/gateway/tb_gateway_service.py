@@ -27,7 +27,7 @@ from simplejson import load, loads, dumps
 
 from thingsboard_gateway.gateway.tb_client import TBClient
 from thingsboard_gateway.gateway.tb_logger import TBLoggerHandler
-from thingsboard_gateway.gateway.tb_twisted_service import TBTwistedService
+from thingsboard_gateway.twisted.tb_twisted_service import TBTwistedService
 from thingsboard_gateway.tb_utility.tb_utility import TBUtility
 from thingsboard_gateway.storage.memory_event_storage import MemoryEventStorage
 from thingsboard_gateway.storage.file_event_storage import FileEventStorage

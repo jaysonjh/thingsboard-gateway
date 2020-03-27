@@ -4,7 +4,7 @@ from threading import Thread
 from twisted.internet import reactor, endpoints, defer
 from logging import getLogger
 
-from thingsboard_gateway.protocols.usr.usr_protocol_factory import UsrProtocolFactory
+from thingsboard_gateway.twisted.usr.usr_protocol_factory import UsrProtocolFactory
 from pymodbus.framer.ascii_framer import ModbusAsciiFramer
 from pymodbus.framer.binary_framer import ModbusBinaryFramer
 from pymodbus.framer.rtu_framer import ModbusRtuFramer

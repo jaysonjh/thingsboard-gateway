@@ -1,9 +1,8 @@
-from threading import Thread
 from thingsboard_gateway.connectors.connector import Connector, log
 from random import choice
 from string import ascii_lowercase
 
-from thingsboard_gateway.gateway.tb_twisted_service import TBTwistedService
+from thingsboard_gateway.twisted.tb_twisted_service import TBTwistedService
 
 
 class TcpConnector(Connector):

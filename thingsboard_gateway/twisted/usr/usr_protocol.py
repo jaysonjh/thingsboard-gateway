@@ -18,7 +18,7 @@ from pymodbus.exceptions import NoSuchSlaveException, ConnectionException
 from pymodbus.framer.socket_framer import ModbusSocketFramer
 from pymodbus.transaction import DictTransactionManager, FifoTransactionManager
 
-from thingsboard_gateway.tb_utility.tb_utility import threadsafe_function
+from thingsboard_gateway.tb_utility.tb_thread_utility import threadsafe_function
 
 
 class UsrProtocol(Protocol):

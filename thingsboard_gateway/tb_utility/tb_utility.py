@@ -11,7 +11,6 @@
 #     WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #     See the License for the specific language governing permissions and
 #     limitations under the License.
-import threading
 from re import search
 from os import path, listdir
 from inspect import getmembers, isclass
@@ -124,26 +123,3 @@ class TBUtility:
         except Exception as e:
             log.exception(e)
         return full_value
-
-
-def threadsafe_function(fcn):
-    """decorator making sure that the decorated function is thread safe"""
-    lock = threading.RLock()
-
-    def new(*args, **kwargs):
-        """Lock and call the decorated function
-           Unless kwargs['threadsafe'] == False
-        """
-        threadsafe = kwargs.pop('threadsafe', True)
-        if threadsafe:
-            lock.acquire()
-        try:
-            ret = fcn(*args, **kwargs)
-        except Exception as excpt:
-            raise excpt
-        finally:
-            if threadsafe:
-                lock.release()
-        return ret
-
-    return new

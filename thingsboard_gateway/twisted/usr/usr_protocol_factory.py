@@ -13,7 +13,7 @@ from twisted.internet.protocol import ServerFactory
 from thingsboard_gateway.connectors.modbus.bytes_modbus_downlink_converter import BytesModbusDownlinkConverter
 from thingsboard_gateway.connectors.modbus.bytes_modbus_uplink_converter import BytesModbusUplinkConverter
 from thingsboard_gateway.gateway.tb_schedule_service import TBScheduleService
-from thingsboard_gateway.protocols.usr.usr_protocol import UsrProtocol
+from thingsboard_gateway.twisted.usr.usr_protocol import UsrProtocol
 from thingsboard_gateway.tb_utility.tb_utility import TBUtility, log
 
 from apscheduler.schedulers.background import BackgroundScheduler

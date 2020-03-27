@@ -127,7 +127,7 @@ class MqttConnector(Connector, Thread):
 
     def _on_connect(self, client, userdata, flags, result_code, *extra_params):
         result_codes = {
-            1: "incorrect protocols version",
+            1: "incorrect twisted version",
             2: "invalid client identifier",
             3: "server unavailable",
             4: "bad username or password",
